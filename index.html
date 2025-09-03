@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watch Together</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #1a1a1a;
+        color: #e0e0e0;
+      }
+
+      .container {
+        max-width: 960px;
+      }
+
+      #player {
+        aspect-ratio: 16 / 9;
+        width: 100%;
+      }
+
+      #video-placeholder {
+        aspect-ratio: 16 / 9;
+        width: 100%;
+        background-color: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .chat-panel {
+        min-height: 250px;
+        max-height: 400px;
+        overflow-y: auto;
+        background-color: #2a2a2a;
+      }
+
+      .chat-message {
+        margin-bottom: 0.5rem;
+      }
+
+      .chat-timestamp {
+        font-size: 0.75rem;
+        color: #888;
+      }
+
+      /* Custom message box styling */
+      .message-box {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: #333;
+        color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .message-box button {
+        background-color: #4a90e2;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+
+  <body class="p-4 flex flex-col items-center justify-center min-h-screen">
+    <div class="container bg-[#252525] p-8 rounded-xl shadow-lg w-full">
+      <h1 class="text-3xl font-bold text-center mb-6 text-gray-100">
+        YouTube Watch Together
+      </h1>
+
+      <div class="flex flex-col gap-4">
+        <!-- Status and Control Panel -->
+        <div class="flex items-center gap-4 bg-[#333] p-4 rounded-lg">
+          <div id="status-message" class="text-sm text-yellow-500 flex-1">
+            Status: Not Connected
+          </div>
+          <div class="flex gap-2">
+            <button
+              id="disconnect-btn"
+              class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+            >
+              Disconnect
+            </button>
+            <button
+              id="connect-btn"
+              class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+            >
+              Connect
+            </button>
+          </div>
+        </div>
+
+        <!-- Video Player -->
+        <div
+          id="video-container"
+          class="rounded-xl overflow-hidden shadow-2xl bg-black"
+        >
+          <div id="player"></div>
+          <div id="video-placeholder" class="text-gray-400 text-lg p-12">
+            Please enter a URL and connect to a room to get started.
+          </div>
+        </div>
+
+        <!-- Inputs and Load Button -->
+        <div class="flex flex-col md:flex-row gap-4">
+          <input
+            type="text"
+            id="youtube-url"
+            class="flex-1 p-3 rounded-lg bg-[#333] text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="https://youtube.be/..."
+          />
+          <input
+            type="text"
+            id="room-id-input"
+            class="flex-1 p-3 rounded-lg bg-[#333] text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Room ID (e.g., my-movie-night)"
+          />
+          <button
+            id="load-video-btn"
+            class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+          >
+            Load Video
+          </button>
+        </div>
+
+        <!-- Chat Panel -->
+        <div class="flex flex-col gap-4 mt-6">
+          <div id="chat-messages" class="chat-panel rounded-xl">
+            <p class="text-center text-sm text-gray-400 p-4">
+              Chat will appear here...
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              id="chat-input"
+              class="flex-1 p-3 rounded-lg bg-[#333] text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Type a message..."
+            />
+            <button
+              id="send-btn"
+              class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Message Box -->
+    <div id="message-box" class="message-box">
+      <span id="message-text"></span>
+      <button id="message-ok-btn">OK</button>
+    </div>
+
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <!-- Socket.io client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script>
+      const statusMessage = document.getElementById("status-message");
+      const connectBtn = document.getElementById("connect-btn");
+      const disconnectBtn = document.getElementById("disconnect-btn");
+      const loadVideoBtn = document.getElementById("load-video-btn");
+      const youtubeUrlInput = document.getElementById("youtube-url");
+      const roomIdInput = document.getElementById("room-id-input");
+      const chatInput = document.getElementById("chat-input");
+      const sendBtn = document.getElementById("send-btn");
+      const chatMessages = document.getElementById("chat-messages");
+      const videoPlaceholder = document.getElementById("video-placeholder");
+      const playerContainer = document.getElementById("player");
+      const messageBox = document.getElementById("message-box");
+      const messageText = document.getElementById("message-text");
+      const messageOkBtn = document.getElementById("message-ok-btn");
+
+      let player;
+      let isCreator = false;
+      let pc;
+      let dataChannel;
+      let socket;
+
+      // --- Custom Message Box Logic ---
+      function showMessage(text) {
+        messageText.textContent = text;
+        messageBox.style.display = "flex";
+      }
+
+      messageOkBtn.addEventListener("click", () => {
+        messageBox.style.display = "none";
+      });
+
+      // --- YouTube IFrame API Logic ---
+      function onYouTubeIframeAPIReady() {
+        // API is ready, but the player is created only on button click
+      }
+
+      function createYouTubePlayer(videoId) {
+        if (player) {
+          player.destroy();
+        }
+        videoPlaceholder.style.display = "none";
+        playerContainer.style.display = "block";
+
+        player = new YT.Player("player", {
+          videoId: videoId,
+          playerVars: {
+            controls: 1,
+            rel: 0,
+            modestbranding: 1,
+          },
+          events: {
+            onReady: onPlayerReady,
+            onStateChange: onPlayerStateChange,
+          },
+        });
+      }
+
+      function onPlayerReady(event) {
+        statusMessage.textContent = "Status: Video Loaded";
+        // If we are the creator and connected, send the initial sync
+        if (isCreator && dataChannel && dataChannel.readyState === "open") {
+          dataChannel.send(
+            JSON.stringify({
+              type: "video_sync",
+              action: "play",
+              time: player.getCurrentTime(),
+            })
+          );
+        }
+      }
+
+      function onPlayerStateChange(event) {
+        if (isCreator && dataChannel && dataChannel.readyState === "open") {
+          const currentTime = player.getCurrentTime();
+          // Send sync message for play, pause, and seek (seeking is a state change to playing)
+          if (event.data === YT.PlayerState.PLAYING) {
+            dataChannel.send(
+              JSON.stringify({
+                type: "video_sync",
+                action: "play",
+                time: currentTime,
+              })
+            );
+          } else if (event.data === YT.PlayerState.PAUSED) {
+            dataChannel.send(
+              JSON.stringify({
+                type: "video_sync",
+                action: "pause",
+                time: currentTime,
+              })
+            );
+          }
+        }
+      }
+
+      // --- UI Button Handlers ---
+      loadVideoBtn.addEventListener("click", () => {
+        const url = youtubeUrlInput.value;
+        const videoId = getYouTubeVideoId(url);
+        if (!videoId) {
+          showMessage("Invalid YouTube URL. Please enter a valid URL.");
+          return;
+        }
+        createYouTubePlayer(videoId);
+      });
+
+      connectBtn.addEventListener("click", async () => {
+        const roomId = roomIdInput.value.trim();
+        if (!roomId) {
+          showMessage("Please enter a room ID.");
+          return;
+        }
+        if (!player) {
+          showMessage("Please load a video first.");
+          return;
+        }
+
+        if (!socket) {
+          socket = io();
+          setupSocketListeners();
+        }
+
+        socket.emit("join_room", roomId);
+        statusMessage.textContent = `Status: Joining room ${roomId}...`;
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+      });
+
+      disconnectBtn.addEventListener("click", () => {
+        if (socket) {
+          socket.disconnect();
+          statusMessage.textContent = "Status: Disconnected";
+        }
+        if (pc) {
+          pc.close();
+          pc = null;
+        }
+        if (dataChannel) {
+          dataChannel.close();
+          dataChannel = null;
+        }
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        sendBtn.disabled = true;
+        chatInput.disabled = true;
+      });
+
+      // --- WebRTC Logic ---
+      function setupSocketListeners() {
+        socket.on("connect", () => {
+          console.log("Connected to signaling server");
+        });
+
+        socket.on("room_full", () => {
+          showMessage("Room is full. Please try a different room ID.");
+          connectBtn.disabled = false;
+        });
+
+        socket.on("ready", async (roomId) => {
+          console.log("Room is ready, starting WebRTC connection.");
+          statusMessage.textContent =
+            "Status: Room ready, establishing connection...";
+          isCreator = socket.id === socket.id;
+          await setupPeerConnection(isCreator, roomId);
+        });
+
+        socket.on("offer", async (sdp) => {
+          console.log("Received offer, creating answer...");
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit("answer", {
+            sdp: pc.localDescription,
+            roomId: roomIdInput.value,
+          });
+        });
+
+        socket.on("answer", async (sdp) => {
+          console.log("Received answer, connection established.");
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+          statusMessage.textContent =
+            "Status: Connected! Chat and video sync are active.";
+        });
+
+        socket.on("ice_candidate", async (candidate) => {
+          if (candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        });
+
+        socket.on("peer_disconnected", () => {
+          statusMessage.textContent =
+            "Status: Your peer has disconnected. Waiting for a new user.";
+          if (pc) {
+            pc.close();
+            pc = null;
+          }
+          if (dataChannel) {
+            dataChannel.close();
+            dataChannel = null;
+          }
+          connectBtn.disabled = false;
+          sendBtn.disabled = true;
+          chatInput.disabled = true;
+        });
+      }
+
+      async function setupPeerConnection(isInitiator, roomId) {
+        const iceServers = {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+          ],
+        };
+
+        pc = new RTCPeerConnection(iceServers);
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit("ice_candidate", {
+              candidate: event.candidate,
+              roomId,
+            });
+          }
+        };
+
+        if (isInitiator) {
+          dataChannel = pc.createDataChannel("chat");
+          setupDataChannelListeners(dataChannel);
+          console.log("Creating data channel as initiator");
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("offer", { sdp: pc.localDescription, roomId });
+        } else {
+          pc.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            setupDataChannelListeners(dataChannel);
+            console.log("Receiving data channel as receiver");
+          };
+        }
+      }
+
+      function setupDataChannelListeners(channel) {
+        channel.onopen = (event) => {
+          console.log("Data channel is open!");
+          statusMessage.textContent =
+            "Status: Connected! Chat and video sync are active.";
+          sendBtn.disabled = false;
+          chatInput.disabled = false;
+        };
+
+        channel.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "chat") {
+            displayMessage(message.username, message.text, message.timestamp);
+          } else if (message.type === "video_sync" && player) {
+            if (message.action === "play") {
+              // Use a small delay for better sync
+              const timeDifference = Math.abs(
+                player.getCurrentTime() - message.time
+              );
+              if (timeDifference > 1) {
+                // Only seek if off by more than 1 second
+                player.seekTo(message.time, true);
+              }
+              player.playVideo();
+            } else if (message.action === "pause") {
+              player.seekTo(message.time, true);
+              player.pauseVideo();
+            }
+          }
+        };
+      }
+
+      // --- Chat Logic ---
+      sendBtn.addEventListener("click", () => {
+        const messageText = chatInput.value.trim();
+        if (messageText && dataChannel && dataChannel.readyState === "open") {
+          const message = {
+            type: "chat",
+            text: messageText,
+            username: isCreator ? "Host" : "Guest",
+            timestamp: new Date().toLocaleTimeString(),
+          };
+          dataChannel.send(JSON.stringify(message));
+          displayMessage(message.username, message.text, message.timestamp);
+          chatInput.value = "";
+        } else {
+          showMessage("Not connected. Cannot send messages.");
+        }
+      });
+
+      chatInput.addEventListener("keypress", (event) => {
+        if (event.key === "Enter") {
+          sendBtn.click();
+        }
+      });
+
+      function displayMessage(username, text, timestamp) {
+        const messageElement = document.createElement("div");
+        messageElement.className = "chat-message";
+        messageElement.innerHTML = `<span class="font-bold text-blue-400">${username}:</span> <span class="text-gray-200">${text}</span><br><span class="chat-timestamp">${timestamp}</span>`;
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll to the bottom
+      }
+
+      // --- Utility Function ---
+      function getYouTubeVideoId(url) {
+        const regExp =
+          /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        if (match && match[2].length === 11) {
+          return match[2];
+        }
+        return null;
+      }
+
+      // Initial state
+      disconnectBtn.disabled = true;
+      sendBtn.disabled = true;
+      chatInput.disabled = true;
+      playerContainer.style.display = "none";
+    </script>
+  </body>
+</html>
